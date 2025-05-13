@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UofT Course Planner</title>
+    <link rel="stylesheet" href="https://unpkg.com/missing.css">
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <style>
+        .flash-success {
+            border-left: 5px solid green;
+            padding: 10px;
+            margin-bottom: 1em;
+            background-color: #e8f5e9;
+        }
+
+        .flash-error {
+            border-left: 5px solid red;
+            padding: 10px;
+            margin-bottom: 1em;
+            background-color: #ffebee;
+        }
+
+        .status-optimal,
+        .status-feasible {
+            color: green;
+            font-weight: bold;
+        }
+
+        .status-infeasible {
+            color: orange;
+            font-weight: bold;
+        }
+
+        .status-error,
+        .status-unknown,
+        .status-interrupted {
+            color: red;
+            font-weight: bold;
+        }
+
+        .course-list {
+            display: inline-flex;
+            flex-wrap: wrap;
+            margin: 0;
+            padding: 0;
+        }
+
+        .course-item {
+            display: inline-block;
+            margin: 0;
+            margin-right: 8px;
+        }
+
+        tbody>tr>td {
+            border-bottom: 1px solid var(--faded-fg);
+        }
+
+        main {
+            min-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        footer {
+            margin-top: auto;
+        }
+
+        header {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>UofT Course Planner</h1>
+    </header>
+
+    <main>
+        <p>A multi-year course planner designed to find optimal course progressions - where "optimal" is defined as
+            having the earliest completion time and taking the fewest courses.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div id="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('main_page') }}" method="post" hx-post="{{ url_for('main_page') }}"
+            hx-target="#results-container" hx-swap="innerHTML">
+            <fieldset>
+                <div>
+                    <label for="target_courses">Target Courses (comma-separated):</label>
+                    <input type="text" id="target_courses" name="target_courses" required list="course-list"
+                        placeholder="" autocomplete="off"
+                        value="{{ target_courses | default(request.form.target_courses, '') }}">
+                    <datalist id="course-list">
+                        {% for course in available_courses %}
+                        <option value="{{ course }}">
+                            {% endfor %}
+                    </datalist>
+                    <small>Enter the courses to take.</small>
+                </div>
+
+                <div>
+                    <label for="max_courses">Max Courses per Semester:</label>
+                    <input type="number" id="max_courses" name="max_courses" min="1" required
+                        value="{{ max_courses | default(request.form.max_courses, 5) }}">
+                    <small>Maximum number of courses to take in a single semester.</small>
+                </div>
+
+                <div>
+                    <label for="max_semesters">Max Semesters to Plan:</label>
+                    <input type="number" id="max_semesters" name="max_semesters" min="1" required
+                        value="{{ max_semesters | default(request.form.max_semesters, 8) }}">
+                    <small>The maximum planning horizon (8 semesters = 4 years).</small>
+                </div>
+
+                <button type="submit">Generate Schedule</button>
+            </fieldset>
+        </form>
+
+        <div id="results-container">
+            {% if status is not none %}
+            <div>
+                <h2>Results</h2>
+                <p> <strong>Planner Status:</strong>
+                    {% set status_val = status | default('Unknown') %}
+                    {% set status_class = status_val.lower().split()[0] if status_val and status_val.split() else
+                    'default' %}
+                    <span class="status-{{ status_class }}">{{ status_val }}</span>
+                    <br>
+                    <strong>Targets:</strong> {{ target_courses | default('N/A') }} |
+                    <strong>Max Courses/Sem:</strong> {{ max_courses | default('N/A') }} |
+                    <strong>Max Semesters:</strong> {{ max_semesters | default('N/A') }}
+                </p>
+
+                {% if status and (status == 'Optimal' or status == 'Feasible') and schedule %}
+                <fieldset>
+                    <table>
+                        <caption>Generated Schedule</caption>
+                        <thead>
+                            <tr>
+                                <th>Semester</th>
+                                <th>Courses</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sem_index, sem_data in schedule.items() %}
+                            <tr>
+                                <td>{{ sem_data.name | default('Unnamed Semester') }}</td>
+                                <td>
+                                    {% if sem_data.courses %}
+                                    <div class="course-list">
+                                        {% for course in sem_data.courses %}
+                                        <span class="course-item">{{ course | e }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                    <em>-</em>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="2"><em>No semesters in the generated schedule.</em></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </fieldset>
+                {% elif status and 'Infeasible' in status %}
+                <p> No valid schedule could be found with the given constraints and target courses.
+                </p>
+                <p>Possible reasons:</p>
+                <ul>
+                    <li>Target courses have unmet prerequisites within the max semesters.</li>
+                    <li>Course availability conflicts with prerequisite timing.</li>
+                    <li>Max courses per semester limit is too restrictive.</li>
+                    <li>The target courses or their prerequisites form an impossible sequence.</li>
+                    <li>Issue with the course data graph (missing courses, incorrect prerequisites or sessions).</li>
+                </ul>
+                {% elif status and ('Error' in status or 'Unknown' in status or 'Interrupted' in status) %}
+                <p> An error occurred during planning. Status: {{ status_val }}
+                </p>
+                {% else %}
+                {# This case handles the initial page load where status might be None or a state without schedule #}
+                <p>Submit the form above to generate a schedule. </p>
+                {% endif %}
+            </div>
+            {% else %}
+            <div>
+                <h2>Results</h2>
+                <p>Submit the form above to generate a schedule. </p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+    <p></p>
+</body>
+<footer>
+    <p>Schedules may not be accurate. Please double check.</p>
+    <p>Data from <a href="https://ttb.utoronto.ca/">ttb</a>.</p>
+    <p><a href="#">source</a></p> {# Link needs an actual href #}
+</footer>
+
+</html>
