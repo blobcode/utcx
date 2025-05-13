@@ -66,7 +66,9 @@
                         {% if sem_data.courses %}
                         <div class="course-list">
                             {% for course in sem_data.courses %}
-                            <span class="course-item">{{ course | e }}</span>
+                            <span class="course-item"><a target="_blank"
+                                    href="https://artsci.calendar.utoronto.ca/course/{{ course | e }}">{{ course | e
+                                    }}</a></span>
                             {% if not loop.last %} {% endif %}
                             {% endfor %}
                         </div>
