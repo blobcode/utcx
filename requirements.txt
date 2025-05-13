@@ -1,0 +1,4 @@
+Jinja2==3.1.6
+Flask==3.1.0
+ortools==9.12.4544
+networkx==3.4.2

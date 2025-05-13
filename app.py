@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, flash, redirect, url_for
+from flask import Flask, render_template, request, flash
 import os
 
 from pathing import plan_course_schedule_cp, get_semester_type
